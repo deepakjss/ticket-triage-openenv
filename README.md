@@ -13,10 +13,24 @@ license: mit
 
 Real-world **customer-support triage**: classify **intent**, **priority**, and **routing queue** from short ticket text. Three **graded tasks** (easy → medium → hard) with deterministic scores in **\[0, 1\]**.
 
+## Submission checklist (do these in order)
+
+1. **Sync both remotes** — Keep `main` on **GitHub** and on your **Hugging Face Space** in sync (Space builds from the HF repo, not from GitHub unless you linked them in Space settings).
+2. **Confirm the Space URL** — After each push, wait for the Docker build; open the Space **direct** app URL (`https://*.hf.space`) when the validator asks for a runtime endpoint.
+3. **Smoke-test the API** — `POST /reset` → 200, `GET /health` → 200, `GET /` → 200 (HF probes use `/?logs=container`).
+4. **Run validation locally** — From repo root: `./scripts/run_all_steps.sh` (or `openenv validate` + `openenv validate --url http://127.0.0.1:8000` with `uvicorn` running).
+5. **Run `validate-submission.sh` against the live Space** — `./scripts/validate-submission.sh "https://YOUR_SPACE.hf.space" .`
+6. **Run `inference.py` with real tokens** — Set `HF_TOKEN`, `OPENENV_BASE_URL` (or Docker `LOCAL_IMAGE_NAME`), and confirm **`[START]` / `[STEP]` / `[END]`** lines appear on stdout.
+7. **Submit** — Paste the **GitHub repo URL**, **HF Space URL**, and any other fields the hackathon form requests.
+
+## Design (what this repo actually does)
+
+This is a **custom environment**, not a stock template: the three ticket bodies and instructions live in `ticket_triage_openenv/server/support_environment.py` as `TASK_SPECS`. Each `reset()` rotates tasks in order (intent → priority → route). The grader **`grade_response`** gives **1.0** on an exact normalized match, partial credit when the target substring appears or when token overlap (Jaccard-style) is high, and caps steps per episode at **8**. Observations carry **ticket text**, **instruction**, **task_id**, **hint**, and **last_feedback** so an LLM can iterate. The baseline agent in **`inference.py`** uses **`GenericEnvClient`** (WebSocket) plus the Hugging Face router **`API_BASE_URL`** and your **`HF_TOKEN`** for the chat model—swap **`MODEL_NAME`** or temperature via env vars if you tune behavior.
+
 ## Requirements
 
-- **Python 3.10+** (3.11 recommended; matches `Dockerfile`)
-- `openenv-core`, `fastapi`, `uvicorn`, `openai`
+- **Python 3.10+** (3.11 recommended; matches `Dockerfile` / `uv` lockfile)
+- `openenv-core` (package imports `openenv.core`), `fastapi`, `uvicorn`, `openai`
 
 ## Action / observation
 
@@ -113,12 +127,19 @@ This creates `.venv`, installs deps, runs `uv lock`, `openenv validate`, starts 
 ```
 openenv.yaml
 Dockerfile
-inference.py
+inference.py          # baseline LLM + GenericEnvClient, [START]/[STEP]/[END] logs
 requirements.txt
+pyproject.toml
+server/
+  app.py              # re-exports FastAPI app; entry for `openenv validate`
 ticket_triage_openenv/
-  models.py
-  client.py
+  models.py           # TriageAction / TriageObservation / TriageState
   server/
-    app.py
+    app.py            # create_app(...) + GET /
     support_environment.py
+scripts/
+  validate-submission.sh
+  run_all_steps.sh
+  push_hf_space.sh
+  push_github_and_hf.sh
 ```
