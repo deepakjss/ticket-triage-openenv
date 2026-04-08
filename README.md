@@ -120,7 +120,7 @@ chmod +x scripts/run_all_steps.sh
 
 This creates `.venv`, installs deps, runs `uv lock`, `openenv validate`, starts `uvicorn` on port 8000 if needed, and `openenv validate --url http://127.0.0.1:8000`. With Docker installed it also builds the image.
 
-**Already run successfully in this workspace:** `openenv validate` (local) and `openenv validate --url http://127.0.0.1:8000` (runtime API contract).
+**Confirm locally:** `openenv validate` (static checks) and `openenv validate --url http://127.0.0.1:8000` with `uvicorn` on port 8000 (runtime API contract).
 
 ## Repo layout
 

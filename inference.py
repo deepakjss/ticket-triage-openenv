@@ -1,7 +1,7 @@
 """
 Baseline inference — OpenEnv hackathon format.
 
-Uses OpenAI client + GenericEnvClient (sync) over WebSocket to the Space/server.
+Uses OpenAI client + GenericEnvClient (async) over WebSocket to the Space/server.
 
 Env: API_BASE_URL, MODEL_NAME (defaults OK); HF_TOKEN required (no default).
 Either OPENENV_BASE_URL (http://host:port) or LOCAL_IMAGE_NAME for Docker.
