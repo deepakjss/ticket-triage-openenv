@@ -12,3 +12,14 @@ app = create_app(
     env_name="ticket_triage_openenv",
     max_concurrent_envs=1,
 )
+
+
+@app.get("/")
+def root() -> dict:
+    """HF Spaces / probes often hit `/`; OpenEnv otherwise has no root route."""
+    return {
+        "status": "ok",
+        "service": "ticket-triage-openenv",
+        "docs": "/docs",
+        "health": "/health",
+    }
