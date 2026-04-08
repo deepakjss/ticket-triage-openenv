@@ -24,15 +24,8 @@ fi
 echo "== 1/2 Pushing to GitHub (deepakjss/ticket-triage-openenv) =="
 command git push -u "https://${GITHUB_TOKEN}@github.com/deepakjss/ticket-triage-openenv.git" main
 
-echo "== 2/2 Pushing to Hugging Face Space =="
-command git push -u "https://deepakjss:${HF_TOKEN}@huggingface.co/spaces/deepakjss/ticket-triage-openenv.git" main || {
-  echo ""
-  echo "HF push failed (common if Space has an unrelated initial commit)."
-  echo "Fix: In https://huggingface.co/spaces/deepakjss/ticket-triage-openenv/settings"
-  echo "     connect Repository -> github.com/deepakjss/ticket-triage-openenv and Rebuild,"
-  echo "     or force-push only if you understand the risk: git push -f <hf-remote> main"
-  exit 1
-}
+echo "== 2/2 Pushing to Hugging Face Space (force: replaces HF template history) =="
+command git push --force "https://deepakjss:${HF_TOKEN}@huggingface.co/spaces/deepakjss/ticket-triage-openenv.git" main
 
 echo ""
 echo "Done. Watch build: https://huggingface.co/spaces/deepakjss/ticket-triage-openenv"
