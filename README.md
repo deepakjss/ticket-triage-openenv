@@ -83,10 +83,14 @@ curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/jso
 
 ## Validate
 
+Pre-submission script (organiser-style): **4 checks** — (1) `POST /reset` on your Space, (2) **`docker build`**, (3) **`openenv validate`** (uses **`.venv/bin/openenv`** if present), (4) **`openenv validate --url`** against the same Space.
+
 ```bash
 chmod +x scripts/validate-submission.sh
 ./scripts/validate-submission.sh "https://your-space.hf.space" .
 ```
+
+Requires **Docker Desktop running** and **`openenv-core`** installed in the repo `.venv` or on `PATH`.
 
 Optional full local check (needs [uv](https://github.com/astral-sh/uv)):
 
