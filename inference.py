@@ -3,12 +3,16 @@ Baseline inference — OpenEnv hackathon format.
 
 Uses OpenAI client + GenericEnvClient (async) over WebSocket to the Space/server.
 
-Env: API_BASE_URL, MODEL_NAME (defaults OK); HF_TOKEN required (no default).
+Env: API_BASE_URL, MODEL_NAME (defaults OK); HF_TOKEN or API_KEY required.
 Either OPENENV_BASE_URL (http://host:port) or LOCAL_IMAGE_NAME for Docker.
+
+Stdout must contain only evaluator lines [START], [STEP], [END] (field names/order/format
+per organiser sample). Debug/diagnostics use stderr so parsing stdout stays strict.
 """
 from __future__ import annotations
 
 import os
+import sys
 import textwrap
 from typing import Any, Dict, List, Optional
 
@@ -17,7 +21,8 @@ from openenv.core import GenericEnvClient
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
+# Same as sample: HF primary; optional API_KEY alias
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 OPENENV_BASE_URL = os.getenv("OPENENV_BASE_URL")
 
@@ -105,13 +110,13 @@ def get_model_line(
         text = (comp.choices[0].message.content or "").strip()
         return text.splitlines()[0].strip() if text else "intent:unknown"
     except Exception as exc:
-        print(f"[DEBUG] LLM error: {exc}", flush=True)
+        print(f"[DEBUG] LLM error: {exc}", file=sys.stderr, flush=True)
         return "intent:unknown"
 
 
 async def _run_async_inference() -> None:
     if not HF_TOKEN:
-        raise SystemExit("HF_TOKEN is required (no default).")
+        raise SystemExit("HF_TOKEN or API_KEY is required.")
 
     oa = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
@@ -171,7 +176,7 @@ async def _run_async_inference() -> None:
                 score = max(0.0, min(1.0, score))
                 success = score >= 0.99
             except Exception as exc:
-                print(f"[DEBUG] episode error: {exc}", flush=True)
+                print(f"[DEBUG] episode error: {exc}", file=sys.stderr, flush=True)
                 score = 0.0
                 success = False
             finally:
