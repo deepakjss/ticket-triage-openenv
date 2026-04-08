@@ -37,12 +37,27 @@ else
   fi
 fi
 
-echo "== Step 3: openenv validate"
-if command -v openenv &>/dev/null; then
-  (cd "$REPO_DIR" && openenv validate) || exit 1
+OPENENV_BIN=""
+if [[ -x "$REPO_DIR/.venv/bin/openenv" ]]; then
+  OPENENV_BIN="$REPO_DIR/.venv/bin/openenv"
+elif command -v openenv &>/dev/null; then
+  OPENENV_BIN="$(command -v openenv)"
+fi
+
+echo "== Step 3: openenv validate (static)"
+if [[ -n "$OPENENV_BIN" ]]; then
+  (cd "$REPO_DIR" && "$OPENENV_BIN" validate) || exit 1
   echo "PASS: openenv validate"
 else
-  echo "SKIP: install openenv CLI (pip install from github.com/meta-pytorch/OpenEnv) with Python 3.10+"
+  echo "SKIP: no openenv in .venv/bin or PATH (pip install openenv-core in a venv)"
+fi
+
+echo "== Step 4: openenv validate --url (running Space)"
+if [[ -n "$OPENENV_BIN" ]]; then
+  "$OPENENV_BIN" validate --url "$PING_URL" --timeout 30 || exit 1
+  echo "PASS: openenv validate --url"
+else
+  echo "SKIP: same as step 3"
 fi
 
 echo "All checks completed."
