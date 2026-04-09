@@ -114,42 +114,97 @@ def get_model_line(
         return "intent:unknown"
 
 
+def _stderr_config() -> None:
+    """Helpful context when connect or Docker fails (no secrets)."""
+    print(
+        "[inference] HF_TOKEN="
+        + ("set" if HF_TOKEN else "MISSING")
+        + f" OPENENV_BASE_URL={OPENENV_BASE_URL!r} LOCAL_IMAGE_NAME={LOCAL_IMAGE_NAME!r}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "[inference] Use direct Space URL, e.g. https://user-space.hf.space "
+        "(not huggingface.co/spaces/... HTML page).",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _as_obs_dict(res: Any) -> Dict[str, Any]:
+    """Observation from StepResult may be dict or missing."""
+    if res is None:
+        return {}
+    raw = getattr(res, "observation", None)
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
 async def _run_async_inference() -> None:
     if not HF_TOKEN:
         raise SystemExit("HF_TOKEN or API_KEY is required.")
 
     oa = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
+    env: Optional[GenericEnvClient] = None
     if OPENENV_BASE_URL:
         base = OPENENV_BASE_URL.rstrip("/")
         env = GenericEnvClient(base_url=base)
     elif LOCAL_IMAGE_NAME:
-        env = await GenericEnvClient.from_docker_image(LOCAL_IMAGE_NAME)
+        try:
+            # from_docker_image() already awaits connect() internally
+            env = await GenericEnvClient.from_docker_image(LOCAL_IMAGE_NAME)
+        except Exception as exc:
+            _stderr_config()
+            print(
+                f"[inference] from_docker_image({LOCAL_IMAGE_NAME!r}) failed: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
     else:
+        _stderr_config()
         raise SystemExit("Set OPENENV_BASE_URL or LOCAL_IMAGE_NAME.")
 
-    try:
-        await env.connect()
-        for _ep in range(EPISODES):
-            res = await env.reset()
-            obs: Dict[str, Any] = res.observation  # type: ignore[assignment]
-            task_name = obs.get("task_id") or "unknown"
-            log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+    assert env is not None
 
+    try:
+        # Only needed when not using from_docker_image (already connected there)
+        if OPENENV_BASE_URL:
+            try:
+                await env.connect()
+            except Exception as exc:
+                _stderr_config()
+                print(
+                    f"[inference] WebSocket connect failed: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                raise
+
+        for _ep in range(EPISODES):
             rewards: List[float] = []
             steps_taken = 0
             score = 0.0
             success = False
-            cur = res
+            cur: Any = None
+            task_name = "unknown"
 
             try:
+                res = await env.reset()
+                obs = _as_obs_dict(res)
+                task_name = str(obs.get("task_id") or "unknown")
+                log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+
+                cur = res
                 ticket = str(obs.get("ticket_text", ""))
                 instruction = str(obs.get("instruction", ""))
                 hint = str(obs.get("hint", ""))
                 feedback = str(obs.get("last_feedback", ""))
 
                 for step in range(1, MAX_STEPS + 1):
-                    if cur.done:
+                    if cur is None or cur.done:
                         break
                     line = get_model_line(
                         oa, ticket, instruction, task_name, hint, feedback
@@ -157,17 +212,22 @@ async def _run_async_inference() -> None:
                     cur = await env.step({"message": line})
                     rw = float(cur.reward or 0.0)
                     dn = bool(cur.done)
-                    st = await env.state()
-                    err_raw = (
-                        st.get("last_action_error", "") if isinstance(st, dict) else ""
-                    )
+                    try:
+                        st = await env.state()
+                        err_raw = (
+                            st.get("last_action_error", "")
+                            if isinstance(st, dict)
+                            else ""
+                        )
+                    except Exception:
+                        err_raw = ""
                     err: Optional[str] = err_raw if err_raw else None
 
                     rewards.append(rw)
                     steps_taken = step
                     log_step(step=step, action=line, reward=rw, done=dn, error=err)
 
-                    o2: Dict[str, Any] = cur.observation  # type: ignore[assignment]
+                    o2 = _as_obs_dict(cur)
                     feedback = str(o2.get("last_feedback", ""))
                     if dn:
                         break
@@ -179,6 +239,8 @@ async def _run_async_inference() -> None:
                 print(f"[DEBUG] episode error: {exc}", file=sys.stderr, flush=True)
                 score = 0.0
                 success = False
+                if task_name == "unknown":
+                    log_start(task="unknown", env=BENCHMARK, model=MODEL_NAME)
             finally:
                 log_end(
                     success=success,
@@ -187,13 +249,28 @@ async def _run_async_inference() -> None:
                     rewards=rewards,
                 )
     finally:
-        await env.close()
+        if env is not None:
+            try:
+                await env.close()
+            except Exception as exc:
+                print(
+                    f"[inference] env.close() ignored: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
 
 def main() -> None:
     import asyncio
+    import traceback
 
-    asyncio.run(_run_async_inference())
+    try:
+        asyncio.run(_run_async_inference())
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
