@@ -86,7 +86,7 @@ def log_end(
     # Empty rewards breaks some parsers; sample always has at least one float.
     # Include task= on [END] per validator / organiser examples (e.g. task=NAME score=... steps=...).
     if not rewards:
-        rstr = "0.00"
+        rstr = "0.01"
     else:
         rstr = ",".join(f"{r:.2f}" for r in rewards)
     # Validator example: [END] task=NAME score=0.95 steps=1 — put task, score, steps first.
@@ -99,7 +99,7 @@ def log_end(
 def _emit_minimal_failure(task: str) -> None:
     """Always emit [START] + [END] so Phase-2 stdout regex finds structured lines."""
     log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
-    log_end(task=task, success=False, steps=0, score=0.0, rewards=[0.0])
+    log_end(task=task, success=False, steps=0, score=0.01, rewards=[0.01])
 
 
 def build_user_message(
@@ -229,7 +229,7 @@ async def _run_async_inference() -> None:
         for _ep in range(EPISODES):
             rewards: List[float] = []
             steps_taken = 0
-            score = 0.0
+            score = 0.01
             success = False
             cur: Any = None
             task_name = "unknown"
@@ -253,7 +253,8 @@ async def _run_async_inference() -> None:
                         oa, ticket, instruction, task_name, hint, feedback
                     )
                     cur = await env.step({"message": line})
-                    rw = float(cur.reward or 0.0)
+                    _rw = float(getattr(cur, "reward", None) or 0.01)
+                    rw = max(0.01, min(0.99, _rw))
                     dn = bool(cur.done)
                     try:
                         st = await env.state()
@@ -275,12 +276,12 @@ async def _run_async_inference() -> None:
                     if dn:
                         break
 
-                score = max(rewards) if rewards else 0.0
-                score = max(0.0, min(1.0, score))
+                score = max(rewards) if rewards else 0.01
+                score = max(0.01, min(0.99, score))
                 success = score >= 0.99
             except Exception as exc:
                 print(f"[DEBUG] episode error: {exc}", file=sys.stderr, flush=True)
-                score = 0.0
+                score = 0.01
                 success = False
                 if task_name == "unknown":
                     log_start(task="unknown", env=BENCHMARK, model=MODEL_NAME)

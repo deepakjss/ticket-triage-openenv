@@ -1,4 +1,4 @@
-"""Support ticket triage — 3 graded tasks, deterministic scores in [0, 1]."""
+"""Support ticket triage — 3 graded tasks, deterministic scores strictly in (0, 1)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,17 @@ from openenv.core.env_server.interfaces import Environment
 from ticket_triage_openenv.models import TriageAction, TriageObservation, TriageState
 
 MAX_STEPS_PER_EPISODE = 8
+
+# Task validation: each score must be strictly between 0 and 1 (not 0.0, not 1.0).
+_MIN_TASK_SCORE = 0.01
+_MAX_TASK_SCORE = 0.99
+
+
+def _task_score_strict(x: float) -> float:
+    """Clamp to open interval (0, 1) for validator / task checks."""
+    v = float(x)
+    v = max(_MIN_TASK_SCORE, min(_MAX_TASK_SCORE, v))
+    return round(v, 2)
 
 TASK_SPECS: List[Tuple[str, str, str, str, str]] = [
     (
@@ -58,19 +69,22 @@ def grade_response(agent_line: str, target: str) -> float:
     a = _normalize(agent_line)
     t = _normalize(target)
     if not a:
-        return 0.0
-    if a == t:
-        return 1.0
-    if t in a and len(t) >= 6:
-        return 0.85
-    ta = set(a.replace(":", " ").split())
-    tt = set(t.replace(":", " ").split())
-    if not tt:
-        return 0.0
-    inter = len(ta & tt)
-    union = len(ta | tt) or 1
-    jacc = inter / union
-    return round(min(1.0, 0.2 + 0.6 * jacc), 2)
+        raw = 0.0
+    elif a == t:
+        raw = 1.0
+    elif t in a and len(t) >= 6:
+        raw = 0.85
+    else:
+        ta = set(a.replace(":", " ").split())
+        tt = set(t.replace(":", " ").split())
+        if not tt:
+            raw = 0.0
+        else:
+            inter = len(ta & tt)
+            union = len(ta | tt) or 1
+            jacc = inter / union
+            raw = min(1.0, 0.2 + 0.6 * jacc)
+    return _task_score_strict(raw)
 
 
 class SupportTriageEnvironment(Environment[TriageAction, TriageObservation, TriageState]):
@@ -109,7 +123,7 @@ class SupportTriageEnvironment(Environment[TriageAction, TriageObservation, Tria
             hint="Format matters: follow the one-line pattern in the instruction.",
             last_feedback="",
             done=False,
-            reward=0.0,
+            reward=_task_score_strict(0.0),
         )
 
     def step(
@@ -128,7 +142,7 @@ class SupportTriageEnvironment(Environment[TriageAction, TriageObservation, Tria
                 hint="",
                 last_feedback="invalid",
                 done=True,
-                reward=0.0,
+                reward=_task_score_strict(0.0),
             )
 
         task_id, _diff, ticket, instruction, target = self._current_spec
@@ -138,14 +152,16 @@ class SupportTriageEnvironment(Environment[TriageAction, TriageObservation, Tria
         msg = (action.message or "").strip()
         if not msg:
             self._state.last_action_error = "empty_message"
-            reward = 0.05
+            reward = _task_score_strict(0.05)
         else:
             self._state.last_action_error = ""
             reward = grade_response(msg, target)
 
-        done = reward >= 0.99 or self._step_in_episode >= MAX_STEPS_PER_EPISODE
+        done = reward >= _MAX_TASK_SCORE or self._step_in_episode >= MAX_STEPS_PER_EPISODE
         feedback = (
-            "correct" if reward >= 0.99 else ("close" if reward >= 0.5 else "keep_trying")
+            "correct"
+            if reward >= _MAX_TASK_SCORE
+            else ("close" if reward >= 0.5 else "keep_trying")
         )
 
         return TriageObservation(
