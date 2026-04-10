@@ -19,6 +19,16 @@ from typing import Any, Dict, List, Optional
 from openai import OpenAI
 from openenv.core import GenericEnvClient
 
+try:
+    sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+except Exception:
+    pass
+
+
+def _struct_stdout(line: str) -> None:
+    """Write evaluator lines to stdout fd (fd 1); avoids TextIOWrapper buffering in piped CI."""
+    os.write(1, (line + "\n").encode("utf-8", errors="replace"))
+
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 # Same as sample: HF primary; optional API_KEY alias
@@ -27,7 +37,10 @@ LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 OPENENV_BASE_URL = os.getenv("OPENENV_BASE_URL")
 
 BENCHMARK = os.getenv("OPENENV_BENCHMARK", "ticket_triage_openenv")
-EPISODES = max(1, int(os.getenv("OPENENV_EPISODES", "3")))
+try:
+    EPISODES = max(1, int(os.getenv("OPENENV_EPISODES", "3")))
+except ValueError:
+    EPISODES = 3
 # Set True after first [START] so we never finish with zero structured lines on stdout.
 _STRUCTURED_LOG_EMITTED = False
 MAX_STEPS = int(os.getenv("MAX_STEPS", "12"))
@@ -43,10 +56,12 @@ SYSTEM_PROMPT = textwrap.dedent(
 ).strip()
 
 
-def log_start(task: str, env_name: str, model: str) -> None:
+def log_start(task: str, env: str, model: str) -> None:
     global _STRUCTURED_LOG_EMITTED
     _STRUCTURED_LOG_EMITTED = True
-    print(f"[START] task={task} env={env_name} model={model}", flush=True)
+    # Validator shape: [START] task=NAME (env/model reserved for callers; not on stdout).
+    _ = env, model
+    _struct_stdout(f"[START] task={task}")
 
 
 def log_step(
@@ -59,28 +74,32 @@ def log_step(
     err = error if error else "null"
     done_val = str(done).lower()
     a = action.replace("\n", "\\n").replace("\r", "")
-    print(
-        f"[STEP] step={step} action={a} reward={reward:.2f} done={done_val} error={err}",
-        flush=True,
+    # Validator example order: step= then reward=, then optional fields.
+    _struct_stdout(
+        f"[STEP] step={step} reward={reward:.2f} action={a} done={done_val} error={err}"
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(
+    task: str, success: bool, steps: int, score: float, rewards: List[float]
+) -> None:
     # Empty rewards breaks some parsers; sample always has at least one float.
+    # Include task= on [END] per validator / organiser examples (e.g. task=NAME score=... steps=...).
     if not rewards:
         rstr = "0.00"
     else:
         rstr = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rstr}",
-        flush=True,
+    # Validator example: [END] task=NAME score=0.95 steps=1 — put task, score, steps first.
+    _struct_stdout(
+        f"[END] task={task} score={score:.2f} steps={steps} "
+        f"success={str(success).lower()} rewards={rstr}"
     )
 
 
 def _emit_minimal_failure(task: str) -> None:
     """Always emit [START] + [END] so Phase-2 stdout regex finds structured lines."""
     log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
-    log_end(success=False, steps=0, score=0.0, rewards=[0.0])
+    log_end(task=task, success=False, steps=0, score=0.0, rewards=[0.0])
 
 
 def build_user_message(
@@ -267,6 +286,7 @@ async def _run_async_inference() -> None:
                     log_start(task="unknown", env=BENCHMARK, model=MODEL_NAME)
             finally:
                 log_end(
+                    task=task_name,
                     success=success,
                     steps=steps_taken,
                     score=score,
@@ -299,6 +319,15 @@ def main() -> None:
         if not _STRUCTURED_LOG_EMITTED:
             _emit_minimal_failure("uncaught_exception")
         raise SystemExit(1) from exc
+
+
+def run_inference() -> None:
+    """Entry point for harnesses that import and call instead of executing the script."""
+    main()
+
+
+run = run_inference
+infer = run_inference
 
 
 if __name__ == "__main__":
