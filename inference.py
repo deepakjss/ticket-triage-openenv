@@ -27,7 +27,9 @@ LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 OPENENV_BASE_URL = os.getenv("OPENENV_BASE_URL")
 
 BENCHMARK = os.getenv("OPENENV_BENCHMARK", "ticket_triage_openenv")
-EPISODES = int(os.getenv("OPENENV_EPISODES", "3"))
+EPISODES = max(1, int(os.getenv("OPENENV_EPISODES", "3")))
+# Set True after first [START] so we never finish with zero structured lines on stdout.
+_STRUCTURED_LOG_EMITTED = False
 MAX_STEPS = int(os.getenv("MAX_STEPS", "12"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "120"))
@@ -42,6 +44,8 @@ SYSTEM_PROMPT = textwrap.dedent(
 
 
 def log_start(task: str, env_name: str, model: str) -> None:
+    global _STRUCTURED_LOG_EMITTED
+    _STRUCTURED_LOG_EMITTED = True
     print(f"[START] task={task} env={env_name} model={model}", flush=True)
 
 
@@ -62,11 +66,21 @@ def log_step(
 
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rstr = ",".join(f"{r:.2f}" for r in rewards)
+    # Empty rewards breaks some parsers; sample always has at least one float.
+    if not rewards:
+        rstr = "0.00"
+    else:
+        rstr = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rstr}",
         flush=True,
     )
+
+
+def _emit_minimal_failure(task: str) -> None:
+    """Always emit [START] + [END] so Phase-2 stdout regex finds structured lines."""
+    log_start(task=task, env=BENCHMARK, model=MODEL_NAME)
+    log_end(success=False, steps=0, score=0.0, rewards=[0.0])
 
 
 def build_user_message(
@@ -143,7 +157,9 @@ def _as_obs_dict(res: Any) -> Dict[str, Any]:
 
 async def _run_async_inference() -> None:
     if not HF_TOKEN:
-        raise SystemExit("HF_TOKEN or API_KEY is required.")
+        print("HF_TOKEN or API_KEY is required.", file=sys.stderr, flush=True)
+        _emit_minimal_failure("missing_hf_token")
+        raise SystemExit(1)
 
     oa = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
@@ -162,10 +178,17 @@ async def _run_async_inference() -> None:
                 file=sys.stderr,
                 flush=True,
             )
+            _emit_minimal_failure("docker_not_ready")
             raise
     else:
         _stderr_config()
-        raise SystemExit("Set OPENENV_BASE_URL or LOCAL_IMAGE_NAME.")
+        print(
+            "Set OPENENV_BASE_URL or LOCAL_IMAGE_NAME.",
+            file=sys.stderr,
+            flush=True,
+        )
+        _emit_minimal_failure("missing_env_url")
+        raise SystemExit(1)
 
     assert env is not None
 
@@ -181,6 +204,7 @@ async def _run_async_inference() -> None:
                     file=sys.stderr,
                     flush=True,
                 )
+                _emit_minimal_failure("websocket_connect")
                 raise
 
         for _ep in range(EPISODES):
@@ -264,12 +288,16 @@ def main() -> None:
     import asyncio
     import traceback
 
+    global _STRUCTURED_LOG_EMITTED
+
     try:
         asyncio.run(_run_async_inference())
     except SystemExit:
         raise
     except Exception as exc:
         print(traceback.format_exc(), file=sys.stderr, flush=True)
+        if not _STRUCTURED_LOG_EMITTED:
+            _emit_minimal_failure("uncaught_exception")
         raise SystemExit(1) from exc
 
 
