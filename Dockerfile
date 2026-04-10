@@ -15,8 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-# OpenEnv GenericEnvClient.from_docker_image() maps -p host:8000 (see LocalDockerProvider).
-# HF Spaces set PORT=7860 at runtime — use $PORT so both validators and HF work.
+# OpenEnv from_docker_image() maps -p host:8000. HF README app_port must match (8000).
 ENV PORT=8000
 EXPOSE 8000
 

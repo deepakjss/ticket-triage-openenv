@@ -4,7 +4,8 @@ emoji: 🎫
 colorFrom: blue
 colorTo: green
 sdk: docker
-app_port: 7860
+# Must match the port uvicorn binds (8000 for OpenEnv docker; HF sets PORT from this)
+app_port: 8000
 pinned: false
 license: mit
 ---
@@ -55,14 +56,11 @@ curl -s -X POST http://127.0.0.1:8000/reset -H "Content-Type: application/json" 
 
 ## Docker (same as Space)
 
-The image listens on **`PORT`** (default **8000**). OpenEnv’s `from_docker_image()` maps **`host:8000`** — that matches the default. **Hugging Face** sets **`PORT=7860`** at runtime; README **`app_port: 7860`** below is for the Space UI.
+The image listens on **`PORT`** (default **8000**). OpenEnv’s `from_docker_image()` maps **`host:8000`**. **Hugging Face** reads **`app_port`** in the YAML header above — it **must** be **8000** so the proxy and health checks hit the same port as uvicorn (using **`app_port: 7860`** while the app listens on **8000** causes a restart loop).
 
 ```bash
 docker build -t ticket-triage-openenv:latest .
-# Local / OpenEnv-style (same as automated validators):
 docker run --rm -p 8000:8000 ticket-triage-openenv:latest
-# Like HF (explicit port):
-docker run --rm -e PORT=7860 -p 7860:7860 ticket-triage-openenv:latest
 ```
 
 ## Baseline inference (`inference.py`)
@@ -77,7 +75,7 @@ python inference.py
 
 ## Hugging Face Space
 
-Space: [`deepakjss/ticket-triage-openenv`](https://huggingface.co/spaces/deepakjss/ticket-triage-openenv) — HF sets **`PORT=7860`**; the **`app_port`** in the YAML header above matches that.
+Space: [`deepakjss/ticket-triage-openenv`](https://huggingface.co/spaces/deepakjss/ticket-triage-openenv) — **`app_port: 8000`** must stay in sync with the Dockerfile.
 
 Check the live API (use your **direct** `*.hf.space` URL):
 
