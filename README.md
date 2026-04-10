@@ -55,9 +55,14 @@ curl -s -X POST http://127.0.0.1:8000/reset -H "Content-Type: application/json" 
 
 ## Docker (same as Space)
 
+The image listens on **`PORT`** (default **8000**). OpenEnv’s `from_docker_image()` maps **`host:8000`** — that matches the default. **Hugging Face** sets **`PORT=7860`** at runtime; README **`app_port: 7860`** below is for the Space UI.
+
 ```bash
 docker build -t ticket-triage-openenv:latest .
-docker run --rm -p 7860:7860 ticket-triage-openenv:latest
+# Local / OpenEnv-style (same as automated validators):
+docker run --rm -p 8000:8000 ticket-triage-openenv:latest
+# Like HF (explicit port):
+docker run --rm -e PORT=7860 -p 7860:7860 ticket-triage-openenv:latest
 ```
 
 ## Baseline inference (`inference.py`)
@@ -72,7 +77,7 @@ python inference.py
 
 ## Hugging Face Space
 
-Space: [`deepakjss/ticket-triage-openenv`](https://huggingface.co/spaces/deepakjss/ticket-triage-openenv) — app listens on **7860** (`Dockerfile` / `openenv.yaml`).
+Space: [`deepakjss/ticket-triage-openenv`](https://huggingface.co/spaces/deepakjss/ticket-triage-openenv) — HF sets **`PORT=7860`**; the **`app_port`** in the YAML header above matches that.
 
 Check the live API (use your **direct** `*.hf.space` URL):
 

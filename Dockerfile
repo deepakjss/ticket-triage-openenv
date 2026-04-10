@@ -15,11 +15,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+# OpenEnv GenericEnvClient.from_docker_image() maps -p host:8000 (see LocalDockerProvider).
+# HF Spaces set PORT=7860 at runtime — use $PORT so both validators and HF work.
+ENV PORT=8000
+EXPOSE 8000
 
-# HF Docker Spaces expect port 7860 (see https://huggingface.co/docs/hub/spaces-sdks-docker)
-EXPOSE 7860
+HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=5 \
+    CMD sh -c 'curl -fsS "http://127.0.0.1:${PORT:-8000}/health" || exit 1'
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:7860/health || exit 1
-
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "exec uvicorn server.app:app --host 0.0.0.0 --port ${PORT:-8000}"]

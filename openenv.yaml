@@ -3,4 +3,5 @@ name: ticket_triage_openenv
 type: space
 runtime: fastapi
 app: server.app:app
-port: 7860
+# Default app port inside the image (OpenEnv docker maps host:8000). HF sets PORT=7860 at runtime.
+port: 8000
